@@ -57,5 +57,5 @@ return [
             'https://graph.microsoft.com/Mail.Send',
             'https://graph.microsoft.com/User.Read',
         ],
-    ]
+    ],
 ];

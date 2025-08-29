@@ -5,14 +5,11 @@ namespace App\Filament\Resources\EmailAccountResource\Pages;
 use App\Filament\Resources\EmailAccountResource;
 use App\Models\EmailAccount;
 use App\Services\EmailService;
-use Filament\Actions\Action;
-use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
@@ -61,7 +58,7 @@ class ComposeEmail extends Page
         $data = $this->form->getState();
 
         $account = EmailAccount::findOrFail($data['email_account_id']);
-        $emailService = new EmailService();
+        $emailService = new EmailService;
 
         $emailData = [
             'to' => $data['to'],

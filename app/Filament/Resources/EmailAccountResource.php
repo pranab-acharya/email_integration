@@ -3,15 +3,12 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\EmailAccountResource\Pages;
-use App\Filament\Resources\EmailAccountResource\RelationManagers;
 use App\Models\EmailAccount;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class EmailAccountResource extends Resource
 {
@@ -34,7 +31,7 @@ class EmailAccountResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('provider')
                     ->badge()
-                    ->color(fn(string $state): string => match ($state) {
+                    ->color(fn (string $state): string => match ($state) {
                         'google' => 'success',
                         'outlook' => 'primary',
                     }),
@@ -75,9 +72,7 @@ class EmailAccountResource extends Resource
     {
         return [
             'index' => Pages\ListEmailAccounts::route('/'),
-            'create' => Pages\CreateEmailAccount::route('/create'),
-            'edit' => Pages\EditEmailAccount::route('/{record}/edit'),
-            'compose' => Pages\ComposeEmail::route('/compose-email')
+            'compose' => Pages\ComposeEmail::route('/compose-email'),
         ];
     }
 }
