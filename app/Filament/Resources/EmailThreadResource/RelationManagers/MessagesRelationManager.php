@@ -33,9 +33,11 @@ class MessagesRelationManager extends RelationManager
                     ->searchable(),
                 TextColumn::make('from_email')
                     ->label('From')
+                    ->badge()
                     ->toggleable(),
                 TextColumn::make('to')
                     ->label('To')
+                    ->badge()
                     ->formatStateUsing(fn ($state) => is_array($state) ? implode(', ', $state) : ($state ?? ''))
                     ->wrap()
                     ->limit(60),
@@ -49,6 +51,7 @@ class MessagesRelationManager extends RelationManager
                     ->sortable(),
             ])
             ->defaultSort('sent_at', 'desc')
+            ->poll()
             ->actions([
                 ViewAction::make('view')
                     ->label('View')

@@ -47,15 +47,22 @@ return [
         ],
     ],
 
-    'microsoft' => [
-        'client_id' => env('MICROSOFT_CLIENT_ID'),
-        'client_secret' => env('MICROSOFT_CLIENT_SECRET'),
-        'redirect' => env('MICROSOFT_REDIRECT_URI', '/auth/microsoft/callback'),
-        'tenant' => env('MICROSOFT_TENANT_ID', 'common'),
-        'scopes' => [
-            'https://graph.microsoft.com/Mail.ReadWrite',
-            'https://graph.microsoft.com/Mail.Send',
-            'https://graph.microsoft.com/User.Read',
-        ],
+    // 'microsoft' => [
+    //     'client_id' => env('MICROSOFT_CLIENT_ID'),
+    //     'client_secret' => env('MICROSOFT_CLIENT_SECRET'),
+    //     'redirect' => env('MICROSOFT_REDIRECT_URI', '/auth/microsoft/callback'),
+    //     'tenant' => env('MICROSOFT_TENANT_ID', 'common'),
+    //     'scopes' => [
+    //         'https://graph.microsoft.com/Mail.ReadWrite',
+    //         'https://graph.microsoft.com/Mail.Send',
+    //         'https://graph.microsoft.com/User.Read',
+    //     ],
+    // ],
+
+    'azure' => [
+        'client_id' => env('AZURE_CLIENT_ID'),
+        'client_secret' => env('AZURE_CLIENT_SECRET'),
+        'redirect' => env('AZURE_REDIRECT_URI'),
+        'tenant' => env('AZURE_TENANT_ID', 'common'), // 'common' for multi-tenant
     ],
 ];
