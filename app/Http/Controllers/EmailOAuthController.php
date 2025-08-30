@@ -11,34 +11,49 @@ use Laravel\Socialite\Facades\Socialite;
 
 class EmailOAuthController extends Controller
 {
-    public function connect($provider)
+    public function connect(string $provider)
     {
+        // Map microsoft to azure driver
+        $socialiteProvider = $provider === 'microsoft' ? 'azure' : $provider;
+
         if (! in_array($provider, ['google', 'microsoft'])) {
             return redirect()->back()->with('error', 'Invalid provider');
         }
 
         $scopes = $provider === 'google'
             ? ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.readonly']
-            : ['https://graph.microsoft.com/Mail.Send', 'https://graph.microsoft.com/Mail.ReadWrite'];
+            : [
+                'openid',
+                'profile',
+                'offline_access',
+                'email',
+                'https://graph.microsoft.com/Mail.Send',
+                'https://graph.microsoft.com/Mail.ReadWrite',
+            ];
 
-        /** @var \Laravel\Socialite\Two\AbstractProvider $driver */
-        $driver = Socialite::driver($provider);
+        $driver = Socialite::driver($socialiteProvider)->scopes($scopes);
 
         if ($provider === 'google') {
-            return $driver->scopes($scopes)->with([
+            return $driver->with([
                 'access_type' => 'offline',
                 'prompt' => 'consent',
             ])->redirect();
         }
 
-        return $driver->scopes($scopes)->redirect();
+        // For Microsoft/Azure
+        return $driver->with([
+            'prompt' => 'consent',
+            'response_type' => 'code',
+        ])->redirect();
     }
 
-    public function callback($provider)
+    public function callback(string $provider)
     {
         try {
-            /** @var \Laravel\Socialite\Two\User $socialiteUser */
-            $socialiteUser = Socialite::driver($provider)->stateless()->user();
+            // Map microsoft to azure driver for callback too
+            $socialiteProvider = $provider === 'microsoft' ? 'azure' : $provider;
+
+            $socialiteUser = Socialite::driver($socialiteProvider)->stateless()->user();
 
             EmailAccount::updateOrCreate(
                 [
@@ -57,14 +72,17 @@ class EmailOAuthController extends Controller
                         : null,
                 ]
             );
+
             Notification::make()
                 ->success()
                 ->title('Email account connected successfully.')
                 ->send();
 
             return redirect(EmailAccountResource::getUrl('index'));
+
         } catch (Exception $e) {
-            return redirect(EmailAccountResource::getUrl('index'))->with('error', 'Connection failed: ' . $e->getMessage());
+            return redirect(EmailAccountResource::getUrl('index'))
+                ->with('error', 'Connection failed: ' . $e->getMessage());
         }
     }
 }

@@ -62,6 +62,7 @@ class EmailThreadResource extends Resource
                 TextColumn::make('external_thread_id')
                     ->label('Thread ID')
                     ->toggleable()
+                    ->limit(15)
                     ->copyable(),
             ])
             ->filters([

@@ -34,6 +34,7 @@ class EmailAccountResource extends Resource
                     ->color(fn (string $state): string => match ($state) {
                         'google' => 'success',
                         'outlook' => 'primary',
+                        default => 'gray',
                     }),
                 Tables\Columns\TextColumn::make('email'),
                 Tables\Columns\TextColumn::make('name'),
