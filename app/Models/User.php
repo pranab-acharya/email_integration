@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -44,5 +45,19 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+    public function emailAccounts(): HasMany
+    {
+        return $this->hasMany(EmailAccount::class);
+    }
+
+    public function hasOutlookAccount(): bool
+    {
+        return $this->emailAccounts()->where('provider', 'outlook')->exists();
+    }
+
+    public function hasGoogleAccount(): bool
+    {
+        return $this->emailAccounts()->where('provider', 'google')->exists();
     }
 }

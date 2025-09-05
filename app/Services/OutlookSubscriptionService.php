@@ -259,21 +259,6 @@ class OutlookSubscriptionService
         return $expiredCount;
     }
 
-    /**
-     * Generate consistent client state for an email account
-     */
-    private function generateClientState(EmailAccount $emailAccount): string
-    {
-        // Option 1: Simple hash-based (recommended)
-        $data = [
-            'account_id' => $emailAccount->id,
-            'email' => $emailAccount->email,
-            'provider' => 'outlook',
-        ];
-
-        return hash_hmac('sha256', json_encode($data), config('app.key'));
-    }
-
     public function deleteAllSubscriptions(string $accessToken): void
     {
         $response = Http::withToken($accessToken)
@@ -289,5 +274,20 @@ class OutlookSubscriptionService
 
             Log::info("Deleted subscription: {$id}");
         }
+    }
+
+    /**
+     * Generate consistent client state for an email account
+     */
+    private function generateClientState(EmailAccount $emailAccount): string
+    {
+        // Option 1: Simple hash-based (recommended)
+        $data = [
+            'account_id' => $emailAccount->id,
+            'email' => $emailAccount->email,
+            'provider' => 'outlook',
+        ];
+
+        return hash_hmac('sha256', json_encode($data), config('app.key'));
     }
 }

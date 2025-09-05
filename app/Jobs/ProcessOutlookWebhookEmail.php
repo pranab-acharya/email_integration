@@ -9,17 +9,17 @@ use App\Models\EmailThread;
 use App\Services\Mail\Providers\OutlookProvider;
 use Carbon\Carbon;
 use Exception;
+use Filament\Notifications\Actions\Action;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Filament\Notifications\Actions\Action;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class ProcessOutlookWebhookEmail implements ShouldQueue
 {
     use Queueable;
-    
+
     /**
      * Create a new job instance.
      */
@@ -34,6 +34,7 @@ class ProcessOutlookWebhookEmail implements ShouldQueue
 
             if (! $messageId || ! $userId) {
                 Log::error('Missing messageId or userId from notification', $this->notification);
+
                 return;
             }
 
@@ -41,6 +42,7 @@ class ProcessOutlookWebhookEmail implements ShouldQueue
             $emailAccount = $this->emailAccount;
             if (! $emailAccount) {
                 Log::error("Email account not found for user: {$userId}");
+
                 return;
             }
 
@@ -48,6 +50,7 @@ class ProcessOutlookWebhookEmail implements ShouldQueue
             $accessToken = $this->getValidToken($emailAccount);
             if (! $accessToken) {
                 Log::error("Could not get valid token for: {$emailAccount->email}");
+
                 return;
             }
 
@@ -55,17 +58,18 @@ class ProcessOutlookWebhookEmail implements ShouldQueue
             $emailData = $this->fetchEmail($messageId, $accessToken);
             if (! $emailData) {
                 Log::error("Could not fetch email: {$messageId}");
+
                 return;
             }
 
             // 6. Process the email with filtering logic
             $result = $this->processEmail($emailData, $emailAccount);
-            
+
             if ($result) {
-                Log::info("Email processed and stored", [
+                Log::info('Email processed and stored', [
                     'message_id' => $result->id,
                     'thread_id' => $result->email_thread_id,
-                    'sent_via_app' => $result->sent_via_app
+                    'sent_via_app' => $result->sent_via_app,
                 ]);
 
                 $emailAccount->load('user');
@@ -76,7 +80,7 @@ class ProcessOutlookWebhookEmail implements ShouldQueue
                         Action::make('View Email')
                             ->url(EmailThreadResource::getUrl('view', ['record' => $result->email_thread_id]))
                             ->markAsRead()
-                            ->button()
+                            ->button(),
                     ])
                     ->success();
                 $user = $emailAccount->user;
@@ -87,12 +91,12 @@ class ProcessOutlookWebhookEmail implements ShouldQueue
                         ->broadcast($user);
                 }
             } else {
-                Log::info("Email ignored - not a reply to app-originated conversation", [
+                Log::info('Email ignored - not a reply to app-originated conversation', [
                     'email_id' => $emailData['id'],
-                    'conversation_id' => $emailData['conversationId'] ?? null
+                    'conversation_id' => $emailData['conversationId'] ?? null,
                 ]);
             }
-            
+
         } catch (Exception $e) {
             Log::error('Webhook processing failed: ' . $e->getMessage(), [
                 'notification' => $this->notification,
@@ -105,51 +109,52 @@ class ProcessOutlookWebhookEmail implements ShouldQueue
     {
         $messageId = $emailData['internetMessageId'] ?? $emailData['id'];
         $conversationId = $emailData['conversationId'] ?? null;
-        
-        if (!$conversationId) {
+
+        if (! $conversationId) {
             Log::warning('No conversationId found in email data');
+
             return null;
         }
-        
+
         // Check if we already have this message (from persistOutlookSent)
         $existingMessage = EmailMessage::where('external_message_id', $messageId)
             ->where('email_account_id', $emailAccount->id)
             ->first();
-            
+
         if ($existingMessage) {
             // Message already exists (probably from persistOutlookSent)
             // Just update it with webhook data and return
             return $this->updateExistingMessage($existingMessage, $emailData);
         }
-        
+
         // Check if this is a reply to a thread that originated from your app
         $existingThread = EmailThread::where('external_thread_id', $conversationId)
             ->where('email_account_id', $emailAccount->id)
             ->where('originated_via_app', true) // Only threads started by your app
             ->first();
-            
-        if (!$existingThread) {
+
+        if (! $existingThread) {
             // This is either:
             // 1. A new email from someone (not replying to your app) - IGNORE
             // 2. A reply to a thread not started by your app - IGNORE
             return null;
         }
-        
+
         // This is a reply to a conversation your app started - store it
         $sentViaApp = $this->checkIfSentViaApp($emailData['internetMessageHeaders'] ?? []);
-        
+
         // Create the reply message in the existing thread
         $message = $this->createEmailMessage($emailData, $existingThread, $emailAccount, $sentViaApp);
-        
+
         // Update thread's last message time and participants
         $existingThread->update([
             'last_message_at' => Carbon::parse($emailData['receivedDateTime']),
-            'participants' => $this->mergeParticipants($existingThread->participants, $emailData)
+            'participants' => $this->mergeParticipants($existingThread->participants, $emailData),
         ]);
-        
+
         return $message;
     }
-    
+
     private function updateExistingMessage(EmailMessage $message, array $emailData): EmailMessage
     {
         // Update the existing message with webhook data (like received_at, headers, etc.)
@@ -161,17 +166,17 @@ class ProcessOutlookWebhookEmail implements ShouldQueue
             'body_text' => $message->body_text ?? strip_tags($emailData['body']['content'] ?? ''),
             'body_html' => $message->body_html ?? ($emailData['body']['content'] ?? ''),
         ]);
-        
+
         // Update thread's last message time
         if ($message->thread) {
             $message->thread->update([
-                'last_message_at' => Carbon::parse($emailData['receivedDateTime'])
+                'last_message_at' => Carbon::parse($emailData['receivedDateTime']),
             ]);
         }
-        
+
         return $message;
     }
-    
+
     private function checkIfSentViaApp(array $headers): bool
     {
         foreach ($headers as $header) {
@@ -179,9 +184,10 @@ class ProcessOutlookWebhookEmail implements ShouldQueue
                 return $header['value'] === '1';
             }
         }
+
         return false;
     }
-    
+
     private function createEmailMessage(array $emailData, EmailThread $thread, EmailAccount $emailAccount, bool $sentViaApp): EmailMessage
     {
         // Extract recipients
@@ -189,10 +195,10 @@ class ProcessOutlookWebhookEmail implements ShouldQueue
         foreach ($emailData['toRecipients'] ?? [] as $recipient) {
             $toRecipients[] = [
                 'name' => $recipient['emailAddress']['name'] ?? '',
-                'email' => $recipient['emailAddress']['address'] ?? ''
+                'email' => $recipient['emailAddress']['address'] ?? '',
             ];
         }
-        
+
         return EmailMessage::create([
             'email_account_id' => $emailAccount->id,
             'email_thread_id' => $thread->id,
@@ -215,50 +221,51 @@ class ProcessOutlookWebhookEmail implements ShouldQueue
             'received_at' => Carbon::parse($emailData['receivedDateTime']),
         ]);
     }
-    
+
     private function extractCcRecipients(array $emailData): array
     {
         $ccRecipients = [];
         foreach ($emailData['ccRecipients'] ?? [] as $recipient) {
             $ccRecipients[] = [
                 'name' => $recipient['emailAddress']['name'] ?? '',
-                'email' => $recipient['emailAddress']['address'] ?? ''
+                'email' => $recipient['emailAddress']['address'] ?? '',
             ];
         }
+
         return $ccRecipients;
     }
-    
+
     private function mergeParticipants(array $existingParticipants, array $emailData): array
     {
         $newParticipants = [];
-        
+
         // Add sender
         if (isset($emailData['from']['emailAddress'])) {
             $newParticipants[] = [
                 'name' => $emailData['from']['emailAddress']['name'] ?? '',
-                'email' => $emailData['from']['emailAddress']['address']
+                'email' => $emailData['from']['emailAddress']['address'],
             ];
         }
-        
+
         // Add recipients
         foreach ($emailData['toRecipients'] ?? [] as $recipient) {
             $newParticipants[] = [
                 'name' => $recipient['emailAddress']['name'] ?? '',
-                'email' => $recipient['emailAddress']['address']
+                'email' => $recipient['emailAddress']['address'],
             ];
         }
-        
+
         // Add CC recipients
         foreach ($emailData['ccRecipients'] ?? [] as $recipient) {
             $newParticipants[] = [
                 'name' => $recipient['emailAddress']['name'] ?? '',
-                'email' => $recipient['emailAddress']['address']
+                'email' => $recipient['emailAddress']['address'],
             ];
         }
-        
+
         // Merge existing and new participants, remove duplicates
         $allParticipants = array_merge($existingParticipants, $newParticipants);
-        
+
         return collect($allParticipants)
             ->unique('email')
             ->values()
@@ -329,11 +336,12 @@ class ProcessOutlookWebhookEmail implements ShouldQueue
             'Authorization' => "Bearer {$accessToken}",
             'Accept' => 'application/json',
         ])->get("https://graph.microsoft.com/v1.0/me/messages/{$messageId}", [
-            '$select' => 'id,subject,from,toRecipients,ccRecipients,conversationId,conversationIndex,internetMessageId,bodyPreview,body,receivedDateTime,sentDateTime,internetMessageHeaders'
+            '$select' => 'id,subject,from,toRecipients,ccRecipients,conversationId,conversationIndex,internetMessageId,bodyPreview,body,receivedDateTime,sentDateTime,internetMessageHeaders',
         ]);
 
         if (! $response->successful()) {
             Log::error('Graph API error: ' . $response->body());
+
             return null;
         }
 
