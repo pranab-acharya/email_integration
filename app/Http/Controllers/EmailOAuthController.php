@@ -120,7 +120,7 @@ class EmailOAuthController extends Controller
             'body' => $request->all(),
         ]);
 
-        $subscriptionService = new OutlookSubscriptionService();
+        $subscriptionService = new OutlookSubscriptionService;
 
         // Handle validation token
         $validationToken = $request->query('validationToken') ?? $request->input('validationToken');
@@ -136,6 +136,7 @@ class EmailOAuthController extends Controller
 
             if (! $clientState || ! $subscriptionId) {
                 Log::warning('Missing client state or subscription ID');
+
                 continue;
             }
 
@@ -143,11 +144,12 @@ class EmailOAuthController extends Controller
             $subscription = EmailWebhookSubscription::with(['emailAccount'])->where('subscription_id', $subscriptionId)
                 ->where('client_state', $clientState)
                 ->first();
-            if (!$subscription) {
+            if (! $subscription) {
                 Log::warning('No subscription found for notification', [
                     'client_state' => $clientState,
                     'subscription_id' => $subscriptionId,
                 ]);
+
                 continue;
             }
             $emailAccount = $subscription->emailAccount;
@@ -157,6 +159,7 @@ class EmailOAuthController extends Controller
                     'client_state' => $clientState,
                     'subscription_id' => $subscriptionId,
                 ]);
+
                 continue;
             }
 

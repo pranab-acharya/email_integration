@@ -14,7 +14,7 @@ class DeleteOutlookSubscriptions extends Command
     public function handle()
     {
         $this->info('Fetching active Outlook subscriptions...');
-        
+
         $subscriptions = EmailWebhookSubscription::where('provider', 'outlook')
             ->where('is_active', true)
             ->with('emailAccount')
@@ -22,22 +22,23 @@ class DeleteOutlookSubscriptions extends Command
 
         if ($subscriptions->isEmpty()) {
             $this->info('No active subscriptions found.');
+
             return;
         }
 
         $this->info(sprintf('Found %d active subscriptions.', $subscriptions->count()));
-        
-        $service = new OutlookSubscriptionService();
-        
+
+        $service = new OutlookSubscriptionService;
+
         foreach ($subscriptions as $subscription) {
             $this->info(sprintf(
                 'Deleting subscription %s for %s...',
                 $subscription->subscription_id,
                 $subscription->emailAccount?->email ?? 'unknown'
             ));
-            
+
             $result = $service->deleteSubscription($subscription);
-            
+
             if ($result['success']) {
                 $this->info('✓ Successfully deleted.');
             } else {

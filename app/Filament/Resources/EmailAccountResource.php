@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\EmailAccountResource\Pages;
+use App\Jobs\SubscribeToOutlookWebhook;
 use App\Models\EmailAccount;
 use App\Services\OutlookSubscriptionService;
 use Exception;
@@ -12,6 +13,8 @@ use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
+use Filament\Tables\Actions\Action;
+use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -47,41 +50,30 @@ class EmailAccountResource extends Resource
                 Tables\Columns\TextColumn::make('created_at')->dateTime(),
             ])
             ->headerActions([
-                Tables\Actions\Action::make('connect_google')
+                Action::make('connect_google')
                     ->label('Connect Gmail')
                     ->icon('heroicon-o-plus')
                     ->color('success')
+                    ->hidden(fn () => Filament::auth()->user()->hasGoogleAccount())
                     ->url('/auth/google'),
-                Tables\Actions\Action::make('connect_outlook')
+                Action::make('connect_outlook')
                     ->label('Connect Outlook')
                     ->icon('heroicon-o-plus')
                     ->color('primary')
+                    ->hidden(fn () => Filament::auth()->user()->hasOutlookAccount())
                     ->url('/auth/microsoft'),
-                Tables\Actions\Action::make('compose_email')
+                Action::make('compose_email')
                     ->label('Compose')
                     ->icon('heroicon-o-plus')
                     ->color('primary')
                     ->url(static::getUrl('compose')),
-                Tables\Actions\Action::make('test_notification')
-                    ->label('Test Notification')
-                    ->icon('heroicon-o-plus')
-                    ->color('success')
-                    ->action(function () {
-                        Log::info('working');
-                        Notification::make()
-                            ->title('Test Notification')
-                            ->body('This is a test notification for test')
-                            ->success()
-                            // ->send();
-                            ->broadcast(Filament::auth()->user());
-                    })
             ])
             ->actions([
-                Tables\Actions\Action::make('subscribe')
-                    ->label('Subscribe PUSH')
+                Action::make('subscribe')
+                    ->label('Subscribe')
                     ->icon('heroicon-o-bell')
                     ->color('success')
-                    ->hidden(fn ($record) => $record->provider === 'outlook' && $record->has_active_subscription)
+                    ->hidden(fn ($record) => $record->provider !== 'outlook' || $record->has_active_subscription)
                     ->requiresConfirmation()
                     ->modalHeading('Subscribe to Outlook Webhook')
                     ->modalDescription('This will set up push notifications for this Outlook account. The process will run in the background.')
@@ -89,7 +81,7 @@ class EmailAccountResource extends Resource
                     ->action(function ($record) {
                         try {
                             // Dispatch the job to the queue
-                            \App\Jobs\SubscribeToOutlookWebhook::dispatch(
+                            SubscribeToOutlookWebhook::dispatch(
                                 $record,
                                 Auth::user()->id
                             );
@@ -112,9 +104,11 @@ class EmailAccountResource extends Resource
                                 ->send();
                         }
                     }),
-                Tables\Actions\Action::make('unsubscribe')
-                    ->label('Unsubscribe PUSH')
-                    ->visible(fn ($record) => $record->provider === 'outlook' && $record->has_active_subscription)
+                Action::make('unsubscribe')
+                    ->label('Unsubscribe')
+                    ->color('warning')
+                    ->icon('heroicon-o-bell-slash')
+                    ->hidden(fn ($record) => $record->provider !== 'outlook' || ! $record->has_active_subscription)
                     ->action(function ($record) {
                         $subscriptionService = (new OutlookSubscriptionService);
                         $result = $subscriptionService->deleteSubscription($record->activeOutlookSubscription());
@@ -133,7 +127,20 @@ class EmailAccountResource extends Resource
                                 ->send();
                         }
                     }),
-                Tables\Actions\DeleteAction::make(),
+                DeleteAction::make()
+                    ->label('Remove')
+                    ->action(function ($record) {
+                        $subscriptionService = (new OutlookSubscriptionService);
+                        $subscriptionService->deleteSubscription($record->activeOutlookSubscription());
+
+                        $record->delete();
+
+                        Notification::make()
+                            ->title('Deleted')
+                            ->body('The email account has been removed.')
+                            ->success()
+                            ->send();
+                    }),
             ]);
     }
 
