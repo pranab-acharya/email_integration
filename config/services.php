@@ -64,5 +64,7 @@ return [
         'client_secret' => env('AZURE_CLIENT_SECRET'),
         'redirect' => env('AZURE_REDIRECT_URI'),
         'tenant' => env('AZURE_TENANT_ID', 'common'), // 'common' for multi-tenant
+        'notification_url' => env('AZURE_NOTIFICATION_URL'),
+        'client_state' => env('AZURE_CLIENT_STATE'),
     ],
 ];

@@ -42,6 +42,12 @@ class ComposeEmail extends Page
                     ->label('To')
                     ->placeholder('Enter email addresses')
                     ->required(),
+                TagsInput::make('cc')
+                    ->label('CC')
+                    ->placeholder('Enter email addresses'),
+                TagsInput::make('bcc')
+                    ->label('BCC')
+                    ->placeholder('Enter email addresses'),
 
                 TextInput::make('subject')
                     ->required(),
@@ -53,15 +59,17 @@ class ComposeEmail extends Page
             ->statePath('data');
     }
 
-    public function sendEmail(): void
+    public function sendEmail(EmailService $emailService): void
     {
         $data = $this->form->getState();
 
         $account = EmailAccount::findOrFail($data['email_account_id']);
-        $emailService = new EmailService;
+        // $emailService = new EmailService;
 
         $emailData = [
             'to' => $data['to'],
+            'cc' => $data['cc'] ?? [],
+            'bcc' => $data['bcc'] ?? [],
             'subject' => $data['subject'],
             'body' => $data['body'],
         ];

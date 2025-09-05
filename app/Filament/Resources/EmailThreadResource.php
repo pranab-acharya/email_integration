@@ -49,11 +49,7 @@ class EmailThreadResource extends Resource
                     ->badge()
                     ->formatStateUsing(fn ($state) => ucfirst($state)),
                 TextColumn::make('participants')
-                    ->separator(', ')
-                    ->badge()
-                    ->listWithLineBreaks()
-                    ->limitList(3)
-                    ->expandableLimitedList()
+                    ->formatStateUsing(fn ($state) => is_array($state) ? implode(', ', $state) : $state)
                     ->label('Participants'),
                 TextColumn::make('last_message_at')
                     ->label('Last Message')

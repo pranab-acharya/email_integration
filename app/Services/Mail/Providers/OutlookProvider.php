@@ -27,19 +27,11 @@ class OutlookProvider implements EmailProvider
             // Create draft first to get message ID
             $messageData = $this->createMessageData($data, $account);
 
-            $draftResponse = Http::withToken($token)
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->post('https://graph.microsoft.com/v1.0/me/messages', $messageData['message']);
-
-            if (in_array($draftResponse->status(), [401, 403], true)) {
-                Log::info('Outlook draft creation unauthorized/forbidden; attempting token refresh and retry.');
-                if ($this->refreshOutlookToken($account)) {
-                    $token = decrypt($account->access_token);
-                    $draftResponse = Http::withToken($token)
-                        ->withHeaders(['Content-Type' => 'application/json'])
-                        ->post('https://graph.microsoft.com/v1.0/me/messages', $messageData['message']);
-                }
-            }
+            $draftResponse = $this->makeRequestWithTokenRetry($account, function ($token) use ($messageData) {
+                return Http::withToken($token)
+                    ->withHeaders(['Content-Type' => 'application/json'])
+                    ->post('https://graph.microsoft.com/v1.0/me/messages', $messageData['message']);
+            });
 
             if (! $draftResponse->successful()) {
                 Log::error('Outlook draft creation failed', [
@@ -54,10 +46,12 @@ class OutlookProvider implements EmailProvider
             $messageId = $draftData['id'] ?? null;
             $conversationId = $draftData['conversationId'] ?? null;
 
-            // Send the draft
-            $sendResponse = Http::withToken($token)
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->post("https://graph.microsoft.com/v1.0/me/messages/{$messageId}/send");
+            // Send the draft with token retry
+            $sendResponse = $this->makeRequestWithTokenRetry($account, function ($token) use ($messageId) {
+                return Http::withToken($token)
+                    ->withHeaders(['Content-Type' => 'application/json'])
+                    ->post("https://graph.microsoft.com/v1.0/me/messages/{$messageId}/send");
+            });
 
             if (! $sendResponse->successful()) {
                 Log::error('Outlook send failed', [
@@ -74,6 +68,89 @@ class OutlookProvider implements EmailProvider
 
             return SendResult::failed($this->key(), null, $e->getMessage());
         }
+    }
+
+    public function ensureValidOutlookToken(EmailAccount $account): ?string
+    {
+        try {
+            if (! $account->isExpired()) {
+                return decrypt($account->access_token);
+            }
+
+            if (! $account->refresh_token) {
+                Log::warning('Outlook token expired and no refresh token available', ['email' => $account->email]);
+
+                return null;
+            }
+
+            if ($this->refreshOutlookToken($account)) {
+                return decrypt($account->access_token);
+            }
+
+            return null;
+        } catch (Throwable $e) {
+            Log::error('Outlook ensureValidOutlookToken error: ' . $e->getMessage());
+
+            return null;
+        }
+    }
+
+    /**
+     * Make a request with automatic token refresh and retry on 401/403
+     */
+    private function makeRequestWithTokenRetry(EmailAccount $account, callable $requestCallback)
+    {
+        $token = $this->ensureValidOutlookToken($account);
+        if (! $token) {
+            // Return a mock failed response
+            return new class
+            {
+                public function successful()
+                {
+                    return false;
+                }
+
+                public function status()
+                {
+                    return 401;
+                }
+
+                public function body()
+                {
+                    return 'Invalid or missing access token';
+                }
+
+                public function json()
+                {
+                    return [];
+                }
+            };
+        }
+
+        $response = $requestCallback($token);
+
+        // If we get 401/403, try refreshing token and retry once
+        if (in_array($response->status(), [401, 403], true)) {
+            Log::info('Outlook request unauthorized/forbidden; attempting token refresh and retry.');
+
+            if ($this->refreshOutlookToken($account)) {
+                $newToken = decrypt($account->access_token);
+                $response = $requestCallback($newToken);
+
+                if ($response->successful()) {
+                    Log::info('Outlook request succeeded after token refresh.');
+                } else {
+                    Log::warning('Outlook request still failed after token refresh', [
+                        'status' => $response->status(),
+                        'body' => $response->body(),
+                    ]);
+                }
+            } else {
+                Log::error('Failed to refresh Outlook token');
+            }
+        }
+
+        return $response;
     }
 
     private function createMessageData(array $data, EmailAccount $account): array
@@ -118,30 +195,6 @@ class OutlookProvider implements EmailProvider
         }
 
         return $messageData;
-    }
-
-    private function ensureValidOutlookToken(EmailAccount $account): ?string
-    {
-        try {
-            if (! $account->isExpired()) {
-                return decrypt($account->access_token);
-            }
-            if (! $account->refresh_token) {
-                Log::warning('Outlook token expired and no refresh token available', ['email' => $account->email]);
-
-                return null;
-            }
-
-            if ($this->refreshOutlookToken($account)) {
-                return decrypt($account->access_token);
-            }
-
-            return null;
-        } catch (Throwable $e) {
-            Log::error('Outlook ensureValidOutlookToken error: ' . $e->getMessage());
-
-            return null;
-        }
     }
 
     private function refreshOutlookToken(EmailAccount $account): bool

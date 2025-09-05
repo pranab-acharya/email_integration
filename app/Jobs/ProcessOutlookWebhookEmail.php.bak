@@ -1,0 +1,233 @@
+<?php
+
+namespace App\Jobs;
+
+use App\Models\EmailAcc            Log::error('Webhook processing failed: ' . $e->getMessage(), [
+                'notification' => $this->data['notification'],
+                'trace' => $e->getTraceAsString(),
+            ]);;
+use Exception;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+
+class ProcessOutlookWebhookEmail implements ShouldQueue
+{
+    use Queueable;
+
+    public function __construct(
+        private array $data
+    ) {}
+
+    public function handle(): void
+    {
+        try {
+            $notification = $this->data['notification'];
+            $emailAccount = EmailAccount::findOrFail($this->data['email_account_id']);
+            
+            // Extract message details
+            $messageId = $notification['resourceData']['id'] ?? null;
+            if (!$messageId) {
+                Log::error('Missing messageId from notification', ['notification' => $notification]);
+                return;
+            }
+
+            // Get fresh access token
+            $accessToken = $this->getValidToken($emailAccount);
+            if (!$accessToken) {
+                Log::error("Could not get valid token for: {$emailAccount->email}");
+                return;
+            }
+
+            // 5. Fetch email from Microsoft Graph
+            $emailData = $this->fetchEmail($messageId, $accessToken);
+            if (! $emailData) {
+                Log::error("Could not fetch email: {$messageId}");
+
+                return;
+            }
+
+            // 6. Process the email (your business logic here)
+            $this->processEmail($emailData, $emailAccount);
+
+        } catch (Exception $e) {
+            Log::error('Webhook processing failed: ' . $e->getMessage(), [
+                'notification' => $notification,
+                'trace' => $e->getTraceAsString(),
+            ]);
+        }
+    }
+
+    private function isValidNotification(): bool
+    {
+        // Check if it's a 'created' notification for emails
+        if (($this->notification['changeType'] ?? '') !== 'created') {
+            return false;
+        }
+
+        // Validate client state if configured
+        $expectedClientState = config('services.azure.client_state');
+        if ($expectedClientState && ($this->notification['clientState'] ?? null) !== $expectedClientState) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function extractUserIdFromResource(string $resource): ?string
+    {
+        // Resource format: "Users/{userId}/Messages/{messageId}"
+        if (preg_match('/Users\/([^\/]+)\/Messages/', $resource, $matches)) {
+            return $matches[1];
+        }
+
+        return null;
+    }
+
+    private function findEmailAccount(string $userId): ?EmailAccount
+    {
+        return EmailAccount::where('microsoft_user_id', $userId)
+            ->where('provider', 'outlook')
+            ->first();
+    }
+
+    private function getValidToken(EmailAccount $emailAccount): ?string
+    {
+        try {
+            // Try current token first
+            if ($this->testToken($emailAccount->access_token)) {
+                return decrypt($emailAccount->access_token);
+            }
+
+            // Refresh if needed
+            return $this->refreshToken($emailAccount);
+        } catch (\Exception $e) {
+            Log::error('Error getting valid token: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    private function testToken(string $encryptedToken): bool
+    {
+        try {
+            $token = decrypt($encryptedToken);
+            $response = Http::withHeaders([
+                'Authorization' => "Bearer {$token}",
+            ])->get('https://graph.microsoft.com/v1.0/me');
+
+            return $response->successful();
+        } catch (\Exception $e) {
+            Log::error('Error testing token: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    private function refreshToken(EmailAccount $emailAccount): ?string
+    {
+        try {
+            $refreshToken = decrypt($emailAccount->refresh_token);
+            
+            $response = Http::asForm()->post('https://login.microsoftonline.com/common/oauth2/v2.0/token', [
+                'client_id' => config('services.azure.client_id'),
+                'client_secret' => config('services.azure.client_secret'),
+                'refresh_token' => $refreshToken,
+                'grant_type' => 'refresh_token',
+                'scope' => 'https://graph.microsoft.com/Mail.Read Mail.ReadWrite',
+            ]);
+
+            if (! $response->successful()) {
+                Log::error('Token refresh failed: ' . $response->body());
+                return null;
+            }
+
+            $data = $response->json();
+
+            // Update stored token - make sure to encrypt them
+            $emailAccount->update([
+                'access_token' => encrypt($data['access_token']),
+                'refresh_token' => isset($data['refresh_token']) ? encrypt($data['refresh_token']) : $emailAccount->refresh_token,
+                'token_expires_at' => now()->addSeconds($data['expires_in'] ?? 3600),
+            ]);
+
+            return $data['access_token'];
+        } catch (\Exception $e) {
+            Log::error('Error refreshing token: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    private function fetchEmail(string $messageId, string $accessToken): ?array
+    {
+        try {
+            Log::info('Fetching email', ['message_id' => $messageId]);
+            
+            $response = Http::withHeaders([
+                'Authorization' => "Bearer {$accessToken}",
+                'Accept' => 'application/json',
+            ])->get("https://graph.microsoft.com/v1.0/me/messages/{$messageId}");
+
+            if (! $response->successful()) {
+                $error = $response->json();
+                Log::error('Graph API error fetching email', [
+                    'message_id' => $messageId,
+                    'status' => $response->status(),
+                    'error' => $error['error'] ?? $response->body()
+                ]);
+
+                return null;
+            }
+
+            $data = $response->json();
+            Log::info('Successfully fetched email', [
+                'message_id' => $messageId,
+                'subject' => $data['subject'] ?? 'No Subject'
+            ]);
+
+            return $data;
+        } catch (\Exception $e) {
+            Log::error('Exception fetching email: ' . $e->getMessage(), [
+                'message_id' => $messageId,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return null;
+        }
+    }
+
+    private function processEmail(array $emailData, EmailAccount $emailAccount): void
+    {
+        // Extract what you need from the email
+        $processedData = [
+            'id' => $emailData['id'],
+            'subject' => $emailData['subject'] ?? 'No Subject',
+            'from' => $emailData['from']['emailAddress']['address'] ?? '',
+            'from_name' => $emailData['from']['emailAddress']['name'] ?? '',
+            'body' => $emailData['body']['content'] ?? '',
+            'body_type' => $emailData['body']['contentType'] ?? 'text',
+            'received_at' => $emailData['receivedDateTime'] ?? now(),
+            'is_read' => $emailData['isRead'] ?? false,
+            'has_attachments' => $emailData['hasAttachments'] ?? false,
+        ];
+
+        // Your business logic here:
+        // - Save to database
+        // - Send notifications
+        // - Apply filters/rules
+        // - Process attachments if needed
+
+        Log::info("Processed email: {$processedData['subject']}", $processedData);
+
+        // Example: Save to your emails table
+        // Email::create([
+        //     'email_account_id' => $emailAccount->id,
+        //     'microsoft_message_id' => $processedData['id'],
+        //     'subject' => $processedData['subject'],
+        //     'from_email' => $processedData['from'],
+        //     'from_name' => $processedData['from_name'],
+        //     'body' => $processedData['body'],
+        //     'received_at' => $processedData['received_at'],
+        //     'is_read' => $processedData['is_read'],
+        //     'has_attachments' => $processedData['has_attachments'],
+        // ]);
+    }
+}

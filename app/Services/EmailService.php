@@ -158,6 +158,6 @@ class EmailService
         );
 
         // Dispatch job to sync the conversation thread
-        SyncOutlookThread::dispatch($account->id, $conversationId);
+        // SyncOutlookThread::dispatch($account->id, $conversationId);
     }
 }

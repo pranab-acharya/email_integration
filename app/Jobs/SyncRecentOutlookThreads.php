@@ -86,17 +86,18 @@ class SyncRecentOutlookThreads implements ShouldQueue
             if (! $account->isExpired()) {
                 return decrypt($account->access_token);
             }
+
             if (! $account->refresh_token) {
                 return null;
             }
 
             $refreshToken = decrypt($account->refresh_token);
+
             $resp = Http::asForm()->post('https://login.microsoftonline.com/common/oauth2/v2.0/token', [
                 'client_id' => config('services.azure.client_id'),
                 'client_secret' => config('services.azure.client_secret'),
                 'refresh_token' => $refreshToken,
                 'grant_type' => 'refresh_token',
-                'scope' => 'https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Mail.Send offline_access',
             ]);
 
             if (! $resp->successful()) {
@@ -110,13 +111,17 @@ class SyncRecentOutlookThreads implements ShouldQueue
             }
 
             $data = $resp->json();
+
             $account->access_token = encrypt($data['access_token']);
+
             if (! empty($data['refresh_token'])) {
                 $account->refresh_token = encrypt($data['refresh_token']);
             }
+
             if (! empty($data['expires_in'])) {
                 $account->expires_at = now()->addSeconds($data['expires_in']);
             }
+
             $account->save();
 
             return decrypt($account->access_token);

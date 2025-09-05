@@ -76,6 +76,13 @@ class GmailProvider implements EmailProvider
             'Content-Type: text/html; charset=utf-8',
         ];
 
+        if (! empty($data['cc'])) {
+            $headers[] = 'Cc: ' . implode(', ', $data['cc']);
+        }
+        if (! empty($data['bcc'])) {
+            $headers[] = 'Bcc: ' . implode(', ', $data['bcc']);
+        }
+
         $message = implode("\r\n", $headers) . "\r\n\r\n" . ($data['body'] ?? '');
 
         return rtrim(strtr(base64_encode($message), '+/', '-_'), '=');
